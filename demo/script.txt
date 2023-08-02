@@ -1,0 +1,321 @@
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, button, div, text)
+import Html.Events exposing (onClick)
+
+
+type alias Model =
+    Int
+
+
+type Msg
+    = Increment
+    | Decrement
+
+
+main : Program () Model Msg
+main =
+    Browser.sandbox
+        { init = init
+        , update = update
+        , view = view
+        }
+
+
+init : Model
+init =
+    0
+
+
+update : Msg -> Model -> Model
+update msg model =
+    case msg of
+        Increment ->
+            model + 1
+
+        Decrement ->
+            model - 1
+
+
+view : Model -> Html Msg
+view model =
+    div []
+        [ button [ onClick Decrement ] [ text "-" ]
+        , div [] [ text (String.fromInt model) ]
+        , button [ onClick Increment ] [ text "+" ]
+        ]
+
+-----------------------------------------------------
+module Main exposing (main)
+
+import Browser
+import Dict exposing (Dict)
+import Html exposing (Html, button, div, h1, text)
+import Html.Events exposing (onClick)
+import Random
+
+
+type alias Model =
+    { dieValue : Int }
+
+
+type Msg
+    = Roll
+    | Rolled Int
+
+
+main : Program () Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = subscriptions
+        }
+
+
+init : () -> ( Model, Cmd Msg )
+init () =
+    ( { dieValue = 1 }, Cmd.none )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.none
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        Roll ->
+            ( model, Random.generate Rolled (Random.int 1 6) )
+
+        Rolled value ->
+            ( { dieValue = value }, Cmd.none )
+
+
+view : Model -> Html Msg
+view model =
+    let
+        dieFaces : Dict Int String
+        dieFaces =
+            Dict.fromList
+                [ ( 1, "⚀" )
+                , ( 2, "⚁" )
+                , ( 3, "⚂" )
+                , ( 4, "⚃" )
+                , ( 5, "⚄" )
+                , ( 6, "⚅" )
+                ]
+
+        dieFace : String
+        dieFace =
+            dieFaces
+                |> Dict.get model.dieValue
+                |> Maybe.withDefault "□"
+    in
+    div []
+        [ h1 [] [ text dieFace ]
+        , button [ onClick Roll ] [ text "Roll" ]
+        ]
+
+--------------------------------------------------------
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, h1, text)
+import Task
+import Time exposing (Posix, Zone)
+
+
+type alias Model =
+    { time : Posix
+    , zone : Zone
+    }
+
+
+type Msg
+    = FetchedZone Zone
+    | Tick Posix
+
+
+main : Program () Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = subscriptions
+        }
+
+
+init : () -> ( Model, Cmd Msg )
+init () =
+    ( { time = Time.millisToPosix 0
+      , zone = Time.utc
+      }
+    , Task.perform FetchedZone Time.here
+    )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        FetchedZone zone ->
+            ( { model | zone = zone }, Cmd.none )
+
+        Tick time ->
+            ( { model | time = time }, Cmd.none )
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Time.every 1000 Tick
+
+
+view : Model -> Html Msg
+view { time, zone } =
+    let
+        hour : String
+        hour =
+            toHumanTime (Time.toHour zone time)
+
+        minute : String
+        minute =
+            toHumanTime (Time.toMinute zone time)
+
+        second : String
+        second =
+            toHumanTime (Time.toSecond zone time)
+
+        toHumanTime : Int -> String
+        toHumanTime timeInt =
+            timeInt
+                |> String.fromInt
+                |> String.padLeft 2 '0'
+    in
+    h1 [] [ text (hour ++ ":" ++ minute ++ ":" ++ second) ]
+---------------------------------------------------------------
+module Main exposing (main)
+
+import Browser
+import Html exposing (Html, blockquote, button, cite, div, h2, p, text)
+import Html.Attributes exposing (style)
+import Html.Events exposing (onClick)
+import Http exposing (Error)
+import Json.Decode as Decode exposing (Decoder)
+import Task
+
+
+type Model
+    = NotRequested
+    | Requesting
+    | Failure Error
+    | Success Quote
+
+
+type alias Quote =
+    { author : String
+    , source : String
+    , quote : String
+    , year : Int
+    }
+
+
+type Msg
+    = FetchQuote
+    | FetchedQuote (Result Error Quote)
+
+
+main : Program () Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = always Sub.none
+        }
+
+
+init : () -> ( Model, Cmd Msg )
+init () =
+    ( NotRequested
+    , Task.perform identity (Task.succeed FetchQuote)
+    )
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        FetchQuote ->
+            let
+                getRandomQuote : Cmd Msg
+                getRandomQuote =
+                    Http.get
+                        { url = "https://elm-lang.org/api/random-quotes"
+                        , expect = Http.expectJson FetchedQuote quoteDecoder
+                        }
+
+                quoteDecoder : Decoder Quote
+                quoteDecoder =
+                    Decode.map4 Quote
+                        (Decode.field "author" Decode.string)
+                        (Decode.field "source" Decode.string)
+                        (Decode.field "quote" Decode.string)
+                        (Decode.field "year" Decode.int)
+            in
+            ( Requesting, getRandomQuote )
+
+        FetchedQuote result ->
+            case result of
+                Ok quote ->
+                    ( Success quote, Cmd.none )
+
+                Err error ->
+                    ( Failure error, Cmd.none )
+
+
+view : Model -> Html Msg
+view model =
+    let
+        viewQuote : Html Msg
+        viewQuote =
+            case model of
+                NotRequested ->
+                    text ""
+
+                Requesting ->
+                    text "Loading..."
+
+                Failure _ ->
+                    div []
+                        [ button [ onClick FetchQuote ] [ text "Try Again!" ]
+                        , p [] [ text "Loading a random quote failed." ]
+                        ]
+
+                Success quote ->
+                    let
+                        author : String
+                        author =
+                            " by "
+                                ++ quote.author
+                                ++ " ("
+                                ++ String.fromInt quote.year
+                                ++ ")"
+                    in
+                    div []
+                        [ button [ onClick FetchQuote, style "display" "block" ]
+                            [ text "More Please!" ]
+                        , blockquote [] [ text quote.quote ]
+                        , p [ style "text-align" "right" ]
+                            [ text "— "
+                            , cite [] [ text quote.source ]
+                            , text author
+                            ]
+                        ]
+    in
+    div []
+        [ h2 [] [ text "Random Quotes" ]
+        , viewQuote
+        ]
